@@ -1,0 +1,4 @@
+mlx>=0.25.0
+numpy
+mlx_lm>=0.25.1
+tqdm

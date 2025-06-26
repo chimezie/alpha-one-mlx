@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=67.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alpha-one-mlx"
+version = "0.0.1"
+dependencies = [
+    "mlx",
+    "mlx_lm",
+    "tqdm",
+]
+description = "An implementation of the Alpha One reasoning progress modulation framework for mlx_lm"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+keywords = []
+authors = [
+  { name = "Chimezie Ogbuji", email = "chimezie@gmail.com" }
+]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+#[project.scripts]
+#mlx_tuning_fork_generate = "mlx_tuning_fork.generate:main"
+#mlx_tuning_fork_training = "mlx_tuning_fork.training:main"
+#mlx_tuning_fork_sweep = "mlx_tuning_fork.wandb_sweep:main"
