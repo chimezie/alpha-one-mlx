@@ -105,10 +105,9 @@ def alpha_one(model,
         raise ValueError(f"Threshold is too high (by {threshold - max_tokens_per_call:,}) (increase max tokens or "
                          f"threshold by proportional amount)")
     mx.random.seed(seed)
-    random.seed(seed)
-
+    
     logits_processor = NewlineWait(tokenizer,
-                                   configuration.slow_thinking_transition_phrases,
+                                   configuration.slow_thinking_suppression_phrases,
                                    max_token_per_call=max_tokens_per_call,
                                    threshold=threshold,
                                    track_progress=verbose)
@@ -184,6 +183,7 @@ def alpha_one(model,
     if verbose:
         print("Starting post-alpha moment modulation")
 
+    thinking_ended = False
     while True:
         prompt = prepare_prompt(modulated_query, tokenizer)
         generated_text = ''
@@ -195,22 +195,24 @@ def alpha_one(model,
                 max_tokens=remaining_tokens_,
                 sampler=sampler
         ):
-            for phrase in configuration.slow_thinking_transition_phrases:
-                assert phrase not in response.text
             generated_text += response.text
             generated_tokens.append(response.token)
+            if response.token == logits_processor.end_think_id:
+                thinking_ended = True
             if generation_crawl:
                 print(response.text, flush=True, end="")
         if generation_crawl:
             print()
 
-        if any((phrase in generated_text for phrase in configuration.slow_thinking_transition_phrases)):
-            warnings.warn("Slow thinking phrase found in post-alpha moment modulation!")
+        if not thinking_ended:
+            for phrase in configuration.slow_thinking_suppression_phrases:
+                if phrase in generated_text:
+                    warnings.warn(f"Slow thinking phrase ({phrase}) found in post-alpha moment modulation!")
 
-        #" [..] any generated slow reasoning transition token “wait” is replaced with “</think>” to explicitly
-        # mark the end of the thinking phase, reinforcing a shift to fast thinking before entering the answering phase
-        generated_text = functools.reduce(lambda text, phrase: text.replace(f"{phrase}", "</think>"),
-                                          configuration.slow_thinking_transition_phrases, generated_text)
+            #" [..] any generated slow reasoning transition token “wait” is replaced with “</think>” to explicitly
+            # mark the end of the thinking phase, reinforcing a shift to fast thinking before entering the answering phase
+            generated_text = functools.reduce(lambda text, phrase: text.replace(f"{phrase}", "</think>"),
+                                              configuration.slow_thinking_suppression_phrases, generated_text)
         if active_traj:
             output_response += generated_text
             modulated_query += generated_text
