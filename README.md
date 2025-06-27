@@ -17,8 +17,11 @@ Options:
   --thinking-token-length INTEGER
                                   Average thinking phase token length
                                   (defaults to 2650)
-  --max-tokens INTEGER            Maximium tokens to generate (defaults to
+  --max-tokens INTEGER            Maximum tokens to generate (defaults to
                                   8192)
+  --alpha FLOAT                   Universal modulating parameter for scaling
+                                  the thinking phase (defaults to 1.4 per
+                                  paper)
   --temp FLOAT                    The temperature (defaults to 1)
   --query TEXT                    The user question
   --model TEXT                    The model to use
