@@ -234,7 +234,6 @@ def alpha_one(model,
 
         if not active_traj:
             warnings.warn("Exiting alpha one modulation")
-            print(response.text, response.finish_reason, response.token)
             break
     return output_response if not generation_crawl else None
 
@@ -256,15 +255,16 @@ def tokenize_single_token(word, tokenizer):
 @click.option('--generation-crawl/--no-generation-crawl', default=False)
 @click.option('--thinking-token-length', type=int, default=2650,
               help='Average thinking phase token length (defaults to 2650)')
-@click.option('--max-tokens', type=int, default=8192, help='Maximium tokens to generate (defaults to 8192)')
+@click.option('--max-tokens', type=int, default=8192, help='Maximum tokens to generate (defaults to 8192)')
+@click.option('--alpha', type=float, default=1.4, help='Universal modulating parameter for scaling the '
+                                                       'thinking phase (defaults to 1.4 per paper)')
 @click.option('--temp', type=float, default=1.0, help='The temperature (defaults to 1)')
 @click.option('--query', help='The user question')
 @click.option('--model', help='The model to use', default="mlx-community/QwQ-32b-4bit-DWQ")
-def main(baseline, verbose, generation_crawl, thinking_token_length, max_tokens, temp, query, model):
+def main(baseline, verbose, generation_crawl, thinking_token_length, max_tokens, alpha, temp, query, model):
     from mlx_lm.utils import load
     model, tokenizer = load(model)
     configuration = get_configuration(model.model_type)
-    alpha = 1.4
     threshold = int(max_tokens - alpha * thinking_token_length)
     print(alpha_one(model,
                     tokenizer,
