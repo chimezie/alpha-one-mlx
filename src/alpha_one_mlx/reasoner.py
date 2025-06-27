@@ -1,15 +1,19 @@
+import numpy as np
 import functools
 import random
 import mlx.core as mx
 import click
 import warnings
+
+from pygments.lexers.csound import newline
 from tqdm import tqdm
 from mlx_lm.sample_utils import make_sampler
 from mlx_lm.generate import stream_generate
 from .models import get_configuration
 from itertools import chain
 
-NEWLINE_CHARACTERS = ["\n\n", ",\n\n", ".\n\n", "]\n\n", ")\n\n", "],\n\n", "].\n\n", ").\n\n", ".)\n\n"]
+NEWLINE_CHARACTERS = ["\n\n", ",\n\n", ".\n\n", "]\n\n", ")\n\n", "],\n\n", "].\n\n", ").\n\n", ".)\n\n",
+                      " \n\n", "\n \n", "  \n\n", "   \n\n"]
 
 class NewlineWait:
     def __init__(self, tokenizer, wait_words, max_token_per_call=0, threshold=0, track_progress=False):
@@ -22,13 +26,17 @@ class NewlineWait:
                                                                                 add_special_tokens=False).input_ids))
         self.wait_words = wait_words
         self.wait_ids = []
+        self.wait_word_lookup = {}
         for word in wait_words:
             try:
                 wait_token = tokenize_single_token(word, tokenizer)
                 self.wait_ids.append(wait_token)
+                self.wait_word_lookup[wait_token] = word
             except AssertionError:
                 print(f'Bypassing multiple token EOS phrase: "{word}" ...')
                 continue
+        if not self.wait_words:
+            raise RuntimeError("No valid wait words provided")
         self.end_think_id = tokenize_single_token("</think>", tokenizer)
         self.max_token_per_call = max_token_per_call
         if threshold <= 0:
@@ -41,6 +49,7 @@ class NewlineWait:
             self.pbar = tqdm(total=self.number_of_thinking_phase_tokens)
         self._num_tokens_generated = 0
         self.non_wait_token_mask = None
+        self.token_ids = None
 
     def __call__(self, token_ids, logits):
         """
@@ -61,28 +70,27 @@ class NewlineWait:
 
         #Number of tokens left before reaching the maximum allowed
         num_remaining_tokens = self.max_token_per_call - num_tokens_generated
+        self.token_ids = token_ids
 
         if num_remaining_tokens >= self.threshold and token_ids[-1] in self.newline_ids:
             #The number of tokens left to generate is greater than the threshold and a new line token was just produced
 
             #Proportion of progress towards the end of the thinking phase
             #"slow thinking first, then fast thinking is a better slow thinking scheduling strategy."
-            p_wait = (num_remaining_tokens - self.threshold) / self.number_of_thinking_phase_tokens + .6
-            rand_variable = random.random()
-            self.pbar.write(f"p_wait: {p_wait:.2f}, with a threshold of {self.threshold:,} tokens ({rand_variable})")
+            p_wait = ((-1 / self.number_of_thinking_phase_tokens) * num_tokens_generated) + 1
 
             #Randomly initiate slow thinking with increasing probability along the progress towards the end of the
             # thinking phase
+            rand_variable = random.random()
             if rand_variable < p_wait:
                 if self.non_wait_token_mask is None:
                     #Create -infinity mask for non-wait tokens only once
                     vocab_size = logits.shape[-1]
-                    self.non_wait_token_mask = mx.array([i not in self.wait_ids
-                                                         for i in range(vocab_size)]) * mx.array(-mx.inf,
-                                                                                                 dtype=logits.dtype)
-                logits = mx.where(self.non_wait_token_mask, self.non_wait_token_mask, logits)
+                    self.non_wait_token_mask = mx.array([i not in self.wait_ids for i in range(vocab_size)])
+                logits = mx.where(self.non_wait_token_mask, mx.array(-mx.inf, dtype=logits.dtype), logits)
                 if self.track_progress:
-                    self.pbar.write(f"Boosting slow thinking probability (for {self.wait_ids}) ...")
+                    wait_token_info = ", ".join([f"{w_id} ({self.wait_word_lookup[w_id]})" for w_id in self.wait_ids])
+                    self.pbar.write(f"Boosting slow thinking probability: {wait_token_info} ...")
         return logits
 
 def alpha_one(model,
@@ -100,14 +108,22 @@ def alpha_one(model,
               verbose=False,
               generation_crawl=False,
               stop_on_empty_post_alpha_generation=True,
-              baseline=False):
+              baseline=False,
+              eos=None,
+              wait_words=None):
+    if eos is None:
+        eos = []
+    if wait_words is None:
+        wait_words = []
     if threshold > max_tokens_per_call:
         raise ValueError(f"Threshold is too high (by {threshold - max_tokens_per_call:,}) (increase max tokens or "
                          f"threshold by proportional amount)")
     mx.random.seed(seed)
-    
+
+    slow_thinking_words = wait_words if wait_words else configuration.slow_thinking_stop_words
+
     logits_processor = NewlineWait(tokenizer,
-                                   configuration.slow_thinking_suppression_phrases,
+                                   slow_thinking_words,
                                    max_token_per_call=max_tokens_per_call,
                                    threshold=threshold,
                                    track_progress=verbose)
@@ -117,8 +133,7 @@ def alpha_one(model,
         min_p=min_p,
         top_k=top_k
     )
-
-    for stop_word in configuration.slow_thinking_stop_words:
+    for stop_word in list(eos):
         try:
             tokenizer.add_eos_token(tokenize_single_token(stop_word, tokenizer))
         except AssertionError:
@@ -157,7 +172,7 @@ def alpha_one(model,
 
     if verbose:
         logits_processor.pbar.close()
-
+        print(response.finish_reason)
     if baseline:
         print(f"prompts: {query}\n=====================")
         print(f"Thinking phase length: {thinking_phase_length:,} tokens")
@@ -172,7 +187,7 @@ def alpha_one(model,
     print(modulated_query, "\n", "-----"*10)
 
     #"After the α moment, we guide [alpha one] to transition into fast reasoning by disabling further slow thinking."
-    for stop_word in configuration.slow_thinking_stop_words:
+    for stop_word in slow_thinking_words:
         try:
             tokenizer.add_eos_token(tokenize_single_token(stop_word, tokenizer))
         except AssertionError:
@@ -221,7 +236,7 @@ def alpha_one(model,
             if (response.finish_reason == "stop" or
                 remaining_tokens_ == 1 or
                 (stop_on_empty_post_alpha_generation and generated_text == "")):
-                if response.finish_reason == "stop":
+                if response.token in tokenizer.eos_token_ids:
                     if verbose:
                         warnings.warn("Generated text ends with stop word")
                 elif remaining_tokens_ == 1:
@@ -261,7 +276,19 @@ def tokenize_single_token(word, tokenizer):
 @click.option('--temp', type=float, default=1.0, help='The temperature (defaults to 1)')
 @click.option('--query', help='The user question')
 @click.option('--model', help='The model to use', default="mlx-community/QwQ-32b-4bit-DWQ")
-def main(baseline, verbose, generation_crawl, thinking_token_length, max_tokens, alpha, temp, query, model):
+@click.option('--eos', help='Additional EOS words (0 or more) to add to tokenizer', multiple=True)
+@click.option('--wait-words', help='Words (0 or more) to for slow-thinking modulation', multiple=True)
+def main(baseline,
+         verbose,
+         generation_crawl,
+         thinking_token_length,
+         max_tokens,
+         alpha,
+         temp,
+         query,
+         model,
+         eos,
+         wait_words):
     from mlx_lm.utils import load
     model, tokenizer = load(model)
     configuration = get_configuration(model.model_type)
@@ -280,6 +307,8 @@ def main(baseline, verbose, generation_crawl, thinking_token_length, max_tokens,
                     apply_chat_template=True,
                     verbose=verbose,
                     generation_crawl=generation_crawl,
-                    baseline=baseline))
+                    baseline=baseline,
+                    eos=eos,
+                    wait_words=wait_words))
 if __name__ == '__main__':
     main()
