@@ -30,4 +30,4 @@ classifiers = [
 where = ["src"]
 
 [project.scripts]
-alpha_one_mlx_reasoner = "alpha_one_mlx.reasoner"
+alpha_one_mlx_reasoner = "alpha_one_mlx.reasoner:main"
