@@ -1,22 +1,36 @@
-import numpy as np
 import functools
 import random
 import mlx.core as mx
 import click
 import warnings
-
-from pygments.lexers.csound import newline
+import mlx.nn as nn
 from tqdm import tqdm
+
 from mlx_lm.sample_utils import make_sampler
 from mlx_lm.generate import stream_generate
-from .models import get_configuration
+from mlx_lm.tokenizer_utils import TokenizerWrapper
+
+from transformers import PreTrainedTokenizer
+
+from .models import get_configuration, AlphaOneConfiguration
 from itertools import chain
+from typing import (
+    List,
+    Optional,
+    Union,
+    Any
+)
 
 NEWLINE_CHARACTERS = ["\n\n", ",\n\n", ".\n\n", "]\n\n", ")\n\n", "],\n\n", "].\n\n", ").\n\n", ".)\n\n",
                       " \n\n", "\n \n", "  \n\n", "   \n\n"]
 
 class NewlineWait:
-    def __init__(self, tokenizer, wait_words, max_token_per_call=0, threshold=0, track_progress=False):
+    def __init__(self,
+                 tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper],
+                 wait_words: List[str],
+                 max_token_per_call: int = 0,
+                 threshold: int = 0,
+                 track_progress: bool = False):
         """
         A logits processor that modulates slow thinking by producing "wait" tokens
 
@@ -39,9 +53,6 @@ class NewlineWait:
             raise RuntimeError("No valid wait words provided")
         self.end_think_id = tokenize_single_token("</think>", tokenizer)
         self.max_token_per_call = max_token_per_call
-        if threshold <= 0:
-            raise ValueError(f"Threshold is too low (by {-threshold:,}) (increase max tokens or decrease average "
-                             f"thinking token length by proportional amount)")
         self.threshold = threshold
         self.number_of_thinking_phase_tokens = self.max_token_per_call - self.threshold
         self.track_progress = track_progress
@@ -51,7 +62,7 @@ class NewlineWait:
         self.non_wait_token_mask = None
         self.token_ids = None
 
-    def __call__(self, token_ids, logits):
+    def __call__(self, token_ids: mx.array, logits: mx.array) -> mx.array:
         """
         Logits processor that updates logits so a reasoning "Wait" is produced (indicating slow thinking)
 
@@ -93,24 +104,25 @@ class NewlineWait:
                     self.pbar.write(f"Boosting slow thinking probability: {wait_token_info} ...")
         return logits
 
-def alpha_one(model,
-              tokenizer,
-              query,
-              configuration,
-              max_tokens_per_call=8192,
-              threshold=0,
-              temperature=0.6,
-              top_p=0.95,
-              min_p=0,
-              top_k=20,
-              seed=42,
-              apply_chat_template=True,
-              verbose=False,
-              generation_crawl=False,
-              stop_on_empty_post_alpha_generation=True,
-              baseline=False,
-              eos=None,
-              wait_words=None):
+def alpha_one(model: nn.Module,
+              tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper],
+              query: str,
+              configuration: AlphaOneConfiguration,
+              max_tokens_per_call: int = 8192,
+              threshold: int = 0,
+              temperature: float = 0.6,
+              top_p: float = 0.95,
+              min_p:float = 0,
+              top_k:int = 20,
+              seed: int = None,
+              apply_chat_template: bool = True,
+              verbose: bool = False,
+              generation_crawl: bool = False,
+              stop_on_empty_post_alpha_generation: bool = True,
+              baseline: bool = False,
+              eos: Optional[List[str]] = None,
+              wait_words: Optional[List[str]] = None,
+              prompt_cache: Optional[Any] = None):
     if eos is None:
         eos = []
     if wait_words is None:
@@ -118,7 +130,9 @@ def alpha_one(model,
     if threshold > max_tokens_per_call:
         raise ValueError(f"Threshold is too high (by {threshold - max_tokens_per_call:,}) (increase max tokens or "
                          f"threshold by proportional amount)")
-    mx.random.seed(seed)
+    if seed is not None:
+        mx.random.seed(seed)
+        random.seed(seed)
 
     slow_thinking_words = wait_words if wait_words else configuration.slow_thinking_stop_words
 
@@ -160,7 +174,8 @@ def alpha_one(model,
             initial_prompt,
             max_tokens=max_tokens_per_call - threshold,
             sampler=sampler,
-            logits_processors=[logits_processor] if not baseline else [])):
+            logits_processors=[logits_processor] if not baseline else [],
+            prompt_cache=prompt_cache)):
         generated_text += response.text
         generated_tokens.append(response.token)
         if response.token == logits_processor.end_think_id:
@@ -208,7 +223,8 @@ def alpha_one(model,
                 tokenizer,
                 prompt,
                 max_tokens=remaining_tokens_,
-                sampler=sampler
+                sampler=sampler,
+                prompt_cache=prompt_cache
         ):
             generated_text += response.text
             generated_tokens.append(response.token)
@@ -253,12 +269,12 @@ def alpha_one(model,
     return output_response if not generation_crawl else None
 
 
-def prepare_prompt(query, tokenizer):
+def prepare_prompt(query: str, tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper]):
     add_special_tokens = tokenizer.bos_token is None or not query.startswith(tokenizer.bos_token)
     initial_prompt = tokenizer.encode(query, add_special_tokens=add_special_tokens)
     return initial_prompt
 
-def tokenize_single_token(word, tokenizer):
+def tokenize_single_token(word: str, tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper]):
     tokens = tokenizer.encode(word, add_special_tokens=False)
     assert len(tokens) == 1, f"'{word}' -> {tokens}"
     print(f"'{word}' -> {tokens}")

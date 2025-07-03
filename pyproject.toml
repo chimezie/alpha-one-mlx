@@ -9,6 +9,7 @@ dependencies = [
     "mlx",
     "mlx_lm",
     "tqdm",
+    "transformers"
 ]
 description = "An implementation of the Alpha One reasoning progress modulation framework for mlx_lm"
 readme = "README.md"
