@@ -43,11 +43,11 @@ class NewlineWait:
         self.wait_word_lookup = {}
         for word in wait_words:
             try:
-                wait_token = tokenize_single_token(word, tokenizer)
+                wait_token = tokenize_single_token(word, tokenizer, verbose=track_progress)
                 self.wait_ids.append(wait_token)
                 self.wait_word_lookup[wait_token] = word
             except AssertionError:
-                print(f'Bypassing multiple token EOS phrase: "{word}" ...')
+                warnings.warn(f'Bypassing multiple token EOS phrase: "{word}" ...')
                 continue
         if not self.wait_words:
             raise RuntimeError("No valid wait words provided")
@@ -151,7 +151,7 @@ def alpha_one(model: nn.Module,
         try:
             tokenizer.add_eos_token(tokenize_single_token(stop_word, tokenizer))
         except AssertionError:
-            print(f'Bypassing multiple token EOS phrase: "{stop_word}" ...')
+            warnings.warn(f'Bypassing multiple token EOS phrase: "{stop_word}" ...')
             continue
 
     if apply_chat_template:
@@ -189,24 +189,22 @@ def alpha_one(model: nn.Module,
         logits_processor.pbar.close()
         print(response.finish_reason)
     if baseline:
-        print(f"prompts: {query}\n=====================")
-        print(f"Thinking phase length: {thinking_phase_length:,} tokens")
+        if verbose:
+            print(f"prompts: {query}\n=====================")
+            print(f"Thinking phase length: {thinking_phase_length:,} tokens")
         return generated_text
-    # print(f"Generated text: {generated_text}")
 
     output_response += generated_text
     modulated_query = query + generated_text
     remaining_tokens_ = max_tokens_per_call - len(generated_tokens)
 
     #Post alpha-moment modulation (disabling further slow thinking)
-    print(modulated_query, "\n", "-----"*10)
-
     #"After the α moment, we guide [alpha one] to transition into fast reasoning by disabling further slow thinking."
     for stop_word in slow_thinking_words:
         try:
             tokenizer.add_eos_token(tokenize_single_token(stop_word, tokenizer))
         except AssertionError:
-            print(f'Bypassing multiple token EOS phrase: "{stop_word}" ...')
+            warnings.warn(f'Bypassing multiple token EOS phrase: "{stop_word}" ...')
             continue
 
     active_traj = True
@@ -274,10 +272,11 @@ def prepare_prompt(query: str, tokenizer: Union[PreTrainedTokenizer, TokenizerWr
     initial_prompt = tokenizer.encode(query, add_special_tokens=add_special_tokens)
     return initial_prompt
 
-def tokenize_single_token(word: str, tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper]):
+def tokenize_single_token(word: str, tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper], verbose: bool = False):
     tokens = tokenizer.encode(word, add_special_tokens=False)
     assert len(tokens) == 1, f"'{word}' -> {tokens}"
-    print(f"'{word}' -> {tokens}")
+    if verbose:
+        print(f"'{word}' -> {tokens}")
     return tokens[0]
 
 @click.command()
