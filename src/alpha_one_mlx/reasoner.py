@@ -122,7 +122,8 @@ def alpha_one(model: nn.Module,
               baseline: bool = False,
               eos: Optional[List[str]] = None,
               wait_words: Optional[List[str]] = None,
-              prompt_cache: Optional[Any] = None):
+              prompt_cache: Optional[Any] = None,
+              draft_model: nn.Module = None):
     if eos is None:
         eos = []
     if wait_words is None:
@@ -175,7 +176,8 @@ def alpha_one(model: nn.Module,
             max_tokens=max_tokens_per_call - threshold,
             sampler=sampler,
             logits_processors=[logits_processor] if not baseline else [],
-            prompt_cache=prompt_cache)):
+            prompt_cache=prompt_cache,
+            draft_model=draft_model)):
         generated_text += response.text
         generated_tokens.append(response.token)
         if response.token == logits_processor.end_think_id:
@@ -222,7 +224,8 @@ def alpha_one(model: nn.Module,
                 prompt,
                 max_tokens=remaining_tokens_,
                 sampler=sampler,
-                prompt_cache=prompt_cache
+                prompt_cache=prompt_cache,
+                draft_model=draft_model
         ):
             generated_text += response.text
             generated_tokens.append(response.token)
@@ -293,6 +296,7 @@ def tokenize_single_token(word: str, tokenizer: Union[PreTrainedTokenizer, Token
 @click.option('--model', help='The model to use', default="mlx-community/QwQ-32b-4bit-DWQ")
 @click.option('--eos', help='Additional EOS words (0 or more) to add to tokenizer', multiple=True)
 @click.option('--wait-words', help='Words (0 or more) to for slow-thinking modulation', multiple=True)
+@click.option('--draft-model', help='Draft model (for speculative decoding)')
 def main(baseline,
          verbose,
          generation_crawl,
@@ -303,11 +307,17 @@ def main(baseline,
          query,
          model,
          eos,
-         wait_words):
+         wait_words,
+         draft_model):
     from mlx_lm.utils import load
     model, tokenizer = load(model)
     configuration = get_configuration(model.model_type)
     threshold = int(max_tokens - alpha * thinking_token_length)
+
+    if draft_model is not None:
+        draft_model, draft_tokenizer = load(draft_model)
+        if draft_tokenizer.vocab_size != tokenizer.vocab_size:
+            raise ValueError("Draft model tokenizer does not match model tokenizer.")
     print(alpha_one(model,
                     tokenizer,
                     query,
@@ -324,6 +334,7 @@ def main(baseline,
                     generation_crawl=generation_crawl,
                     baseline=baseline,
                     eos=eos,
-                    wait_words=wait_words))
+                    wait_words=wait_words,
+                    draft_model=draft_model))
 if __name__ == '__main__':
     main()
