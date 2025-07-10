@@ -180,12 +180,16 @@ def alpha_one(model: nn.Module,
             draft_model=draft_model)):
         generated_text += response.text
         generated_tokens.append(response.token)
+        avg_thinking_token_length = int(max_tokens_per_call - threshold) / 1.4
         if response.token == logits_processor.end_think_id:
             if baseline:
                 thinking_phase_length = idx + 1
             else:
                 raise Exception(f"Exited thinking phase prematurely (after {idx+1:,} tokens).  Update Average thinking "
-                                f"phase token length accordingly")
+                                f"phase token length accordingly.  "
+                                f"Threshold is {threshold:,}, max tokens is {max_tokens_per_call:,}, "
+                                f"average thinking token length is {avg_thinking_token_length:,}, and the scaled "
+                                f"thinking token length is {1.4 * avg_thinking_token_length:,} ")
 
     if verbose:
         logits_processor.pbar.close()
