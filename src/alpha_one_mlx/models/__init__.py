@@ -16,12 +16,6 @@ from transformers import PreTrainedTokenizer
 #An LLM message which maps roles to 'assistant' or 'user' and 'content' to the value of the message
 MessageInfo = TypedDict('MessageInfo', {'role': str, 'content': str})
 
-@dataclass
-class AlphaOneConfiguration:
-    additional_stop_words: list[str] = field(metadata={"help": "Additional stop words"})
-    slow_thinking_stop_words: list[str] = field(metadata={"help": "Trigger words for disabling slow thinking"})
-    slow_thinking_suppression_phrases: list[str] = field(metadata={"help": "Trigger word to replace with </think>"})
-
 class AbstractThinkingTemplateParser(ABC):
     @abstractmethod
     def __init__(self,
@@ -30,17 +24,18 @@ class AbstractThinkingTemplateParser(ABC):
         self.tokenizer = tokenizer
         self.thinking_template = thinking_template
 
-    def thinking_tokens(self, thoughts: str) -> List[int]:
+    def num_tokens(self, content: str) -> List[int]:
         """
         Encodes a given string into a list of integer tokens using the tokenizer. This method does
         not add special tokens during the encoding process and returns the encoded integer list.
 
-        :param thoughts: The input string to encode.
-        :type thoughts: str
+        :param tokenizer: The tokenizer to use for encoding.
+        :param content: The input string to encode.
+        :type content: str
         :return: A list of integers representing the encoded tokens of the input string.
         :rtype: List[int]
         """
-        return self.tokenizer.encode(thoughts, add_special_tokens=False)
+        return self.tokenizer.encode(content, add_special_tokens=False)
 
     @abstractmethod
     def break_llm_response_parts(self, llm_response: str) -> Optional[Tuple[str, str]]:
@@ -78,6 +73,12 @@ QWEN_ADDITIONAL_STOP_WORDS = ["<|im_end|>"]
 QWEN_WAIT_WORDS = ["Wait", "But", "Alternatively"]
 QWEN_SLOW_THINKING_SUPPRESSION_WORDS = ["\nWait", "\nBut", "\nAlternatively"]
 
+@dataclass
+class AlphaOneConfiguration:
+    additional_stop_words: list[str] = field(metadata={"help": "Additional stop words"})
+    slow_thinking_stop_words: list[str] = field(metadata={"help": "Trigger words for disabling slow thinking"})
+    slow_thinking_suppression_phrases: list[str] = field(metadata={"help": "Trigger word to replace with </think>"})
+
 def get_configuration(model_type: str) -> AlphaOneConfiguration:
     if model_type == "qwen3":
         return AlphaOneConfiguration(additional_stop_words=QWEN_ADDITIONAL_STOP_WORDS,
@@ -86,7 +87,16 @@ def get_configuration(model_type: str) -> AlphaOneConfiguration:
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
-def average_thinking_tokens(parser: AbstractThinkingTemplateParser, messages: List[MessageInfo]) -> float:
+def get_thinking_template_parser(model_type: str,
+                                 tokenizer: Union[PreTrainedTokenizer,
+                                 TokenizerWrapper]) -> AbstractThinkingTemplateParser:
+    if model_type == "qwen3":
+        return Qwen3ThinkingTemplateParser(tokenizer)
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+
+def average_thinking_tokens(parser: AbstractThinkingTemplateParser,
+                            messages: List[MessageInfo]) -> float:
     """
     Calculates the average number of thinking tokens for a given sequence of messages
     using the specified thinking template parser.
@@ -112,7 +122,7 @@ def average_thinking_tokens(parser: AbstractThinkingTemplateParser, messages: Li
             parsed_result = parser.break_llm_response_parts(content)
             if parsed_result is not None:
                 thoughts, _ = parsed_result
-                thinking_token_count.append(len(parser.thinking_tokens(thoughts)))
+                thinking_token_count.append(len(parser.num_tokens(thoughts)))
     if not thinking_token_count:
         return 0.0
     return sum(thinking_token_count) / len(thinking_token_count)
