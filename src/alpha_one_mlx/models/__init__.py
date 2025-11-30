@@ -24,19 +24,6 @@ class AbstractThinkingTemplateParser(ABC):
         self.tokenizer = tokenizer
         self.thinking_template = thinking_template
 
-    def num_tokens(self, content: str) -> List[int]:
-        """
-        Encodes a given string into a list of integer tokens using the tokenizer. This method does
-        not add special tokens during the encoding process and returns the encoded integer list.
-
-        :param tokenizer: The tokenizer to use for encoding.
-        :param content: The input string to encode.
-        :type content: str
-        :return: A list of integers representing the encoded tokens of the input string.
-        :rtype: List[int]
-        """
-        return self.tokenizer.encode(content, add_special_tokens=False)
-
     @abstractmethod
     def break_llm_response_parts(self, llm_response: str) -> Optional[Tuple[str, str]]:
         """
@@ -122,7 +109,7 @@ def average_thinking_tokens(parser: AbstractThinkingTemplateParser,
             parsed_result = parser.break_llm_response_parts(content)
             if parsed_result is not None:
                 thoughts, _ = parsed_result
-                thinking_token_count.append(len(parser.num_tokens(thoughts)))
+                thinking_token_count.append(len(parser.tokenizer.encode(thoughts, add_special_tokens=False)(thoughts)))
     if not thinking_token_count:
         return 0.0
     return sum(thinking_token_count) / len(thinking_token_count)
