@@ -36,8 +36,10 @@ class NewlineWait:
 
         """
         #Save new line character, wait, and think tokens
-        self.newline_ids = list(chain.from_iterable(tokenizer.batch_encode_plus(NEWLINE_CHARACTERS,
-                                                                                add_special_tokens=False).input_ids))
+        self.newline_ids = list(chain.from_iterable(
+            tokenizer.encode(phrase, add_special_tokens=False)
+            for phrase in NEWLINE_CHARACTERS
+        ))
         self.wait_words = wait_words
         self.wait_ids = []
         self.wait_word_lookup = {}
