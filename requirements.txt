@@ -1,5 +1,6 @@
-mlx>=0.25.0
+mlx>=0.32.2
 numpy
-mlx_lm>=0.25.1
+mlx_lm>=0.32.0
 tqdm
-transformers
+transformers>=5.7.0
+click

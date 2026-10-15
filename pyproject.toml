@@ -6,14 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "alpha-one-mlx"
 version = "0.0.1"
 dependencies = [
-    "mlx",
-    "mlx_lm",
+    "mlx>=0.32.2",
+    "mlx_lm>=0.32.0",
     "tqdm",
-    "transformers"
+    "transformers>=5.7.0",
+    "click"
 ]
 description = "An implementation of the Alpha One reasoning progress modulation framework for mlx_lm"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 keywords = []
 authors = [
